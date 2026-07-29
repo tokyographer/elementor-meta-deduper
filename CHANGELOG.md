@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic-ish versioning.
 
+## [Unreleased]
+
+### Added
+- **Revision cleanup** (`class-revisions.php`): batched, transactional deletion of post
+  revisions — a major postmeta bloat source since Elementor stores a full layout copy per
+  revision. Exposed as `wp elementor-dedup revisions [--dry-run]` and a separate,
+  backup-gated action in the admin UI. Kept distinct from dedup; never runs from cron.
+
+### Fixed
+- Admin cleanup now processes in resumable chunks instead of rejecting jobs over the browser
+  cap (which, with WP-CLI unavailable on Flywheel Local, left large sites uncleanable).
+
 ## [2.0.0]
 
 Hardened for production use.

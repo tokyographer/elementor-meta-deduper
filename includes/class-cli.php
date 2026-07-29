@@ -160,6 +160,55 @@ final class CLI {
 		$this->halt( 0 );
 	}
 
+	/**
+	 * Delete post revisions (a major source of Elementor postmeta bloat). Separate from dedup.
+	 *
+	 * ## OPTIONS
+	 * [--batch-size=<n>] : revisions per transaction. default 200
+	 * [--max-delete=<n>] : cap per run. default 5000
+	 * [--dry-run] : report what would be deleted, delete nothing
+	 * [--yes] : skip confirmation
+	 * [--format=<format>] : table|json
+	 */
+	public function revisions( $args, $assoc ) {
+		$scan = Revisions::scan();
+		$this->emit(
+			array(
+				'revisions'        => $scan['count'],
+				'elementor_rows'   => $scan['elementor_rows'],
+				'elementor_mb'     => $scan['elementor_mb'],
+				'revision_meta_mb' => $scan['total_meta_mb'],
+			),
+			$assoc
+		);
+		if ( 0 === $scan['count'] ) {
+			\WP_CLI::success( 'No revisions to delete.' );
+			$this->halt( 0 );
+		}
+		if ( isset( $assoc['dry-run'] ) ) {
+			\WP_CLI::success( sprintf( 'Dry run — %d revisions would be deleted.', $scan['count'] ) );
+			$this->halt( 0 );
+		}
+		if ( ! isset( $assoc['yes'] ) ) {
+			\WP_CLI::confirm( sprintf( 'Delete %d revisions? (backup first)', $scan['count'] ) );
+		}
+		$res = Revisions::clean( array(
+			'batch_size' => (int) ( $assoc['batch-size'] ?? 200 ),
+			'max_delete' => (int) ( $assoc['max-delete'] ?? 5000 ),
+		) );
+		Audit::record( array( 'completed' => array( 'revisions_deleted' => $res['deleted'] ), 'sql_error' => $res['error'] ) );
+		if ( $res['stopped'] && $res['error'] ) {
+			\WP_CLI::warning( 'Revision cleanup stopped and rolled back: ' . $res['error'] );
+			$this->halt( 2 );
+		}
+		\WP_CLI::success( sprintf( 'Deleted %d revisions (%d remaining).', $res['deleted'], $res['remaining'] ) );
+		if ( $res['remaining'] > 0 ) {
+			\WP_CLI::log( 'Cap reached — run again to continue. Consider defining WP_POST_REVISIONS to limit future growth.' );
+			$this->halt( 3 );
+		}
+		$this->halt( 0 );
+	}
+
 	/** Re-scan and report residue. */
 	public function verify( $args, $assoc ) {
 		$v = Verifier::verify();

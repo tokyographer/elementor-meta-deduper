@@ -136,7 +136,7 @@ $GLOBALS['wpdb'] = $wpdb;
 
 // ── load the real plugin classes ─────────────────────────────────────────────
 $inc = dirname( __DIR__ ) . '/includes/';
-foreach ( array( 'class-database', 'class-scanner', 'class-analyzer', 'class-planner', 'class-export', 'class-executor', 'class-verifier', 'class-optimizer' ) as $c ) {
+foreach ( array( 'class-database', 'class-scanner', 'class-analyzer', 'class-planner', 'class-export', 'class-executor', 'class-revisions', 'class-verifier', 'class-optimizer' ) as $c ) {
 	require_once $inc . $c . '.php';
 }
 

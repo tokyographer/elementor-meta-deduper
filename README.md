@@ -40,6 +40,9 @@ See [`docs/`](docs/) for the full diagnosis, database analysis, and architecture
 - **Clean** in batches, each batch its own transaction, with a fail-loud DB layer so a failed statement
   **rolls back** instead of silently committing a partial result. Resumable, idempotent, with a
   `--max-delete` cap and a run-lock.
+- **Clean revisions** (separate, explicit action) — Elementor stores a full layout copy per
+  post revision, so revision buildup is a major postmeta bloat source independent of the
+  duplication bug. Batched, transactional, backup-gated; never runs from cron.
 - **Verify** afterward (re-scan for residue + invalidate post caches).
 - **Optimize** tables with **evidence** of reclaimed space (detects MySQL vs MariaDB; applies the MySQL
   strict-mode `wp_posts` workaround only when needed). Never runs from cron.
@@ -82,6 +85,7 @@ wp elementor-dedup clean  --dry-run              # plan + manifest, no deletion
 wp elementor-dedup clean  [--keep=newest|oldest] [--batch-size=25] [--max-delete=3000] \
                           [--post-id=123] [--translations-only] [--include-divergent] \
                           [--resume] [--yes] [--format=table|json]
+wp elementor-dedup revisions [--dry-run] [--yes]  # delete post revisions (bloat source)
 wp elementor-dedup verify                        # residual check
 wp elementor-dedup optimize                      # evidence-based rebuild (never cron)
 ```

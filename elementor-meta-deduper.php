@@ -31,6 +31,7 @@ $emdd_files = array(
 	'class-planner.php',
 	'class-export.php',
 	'class-executor.php',
+	'class-revisions.php',
 	'class-verifier.php',
 	'class-optimizer.php',
 	'class-audit.php',

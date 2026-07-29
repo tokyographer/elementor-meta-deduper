@@ -107,12 +107,38 @@ final class Admin {
 			}
 		}
 
+		// Revision cleanup — a distinct, explicitly-invoked action (not part of dedup).
+		if ( isset( $_POST['emdd_action'] ) && 'clean_revisions' === $_POST['emdd_action'] ) {
+			check_admin_referer( 'emdd_revisions' );
+			if ( empty( $_POST['backup_confirmed_rev'] ) ) {
+				$notice = __( 'Please confirm you have a backup before deleting revisions.', 'elementor-meta-deduper' );
+				$notice_type = 'error';
+			} else {
+				$res = Revisions::clean( array( 'batch_size' => 200, 'max_delete' => self::PER_REQUEST_MAX_ROWS ) );
+				Audit::record( array( 'completed' => array( 'revisions_deleted' => $res['deleted'] ), 'sql_error' => $res['error'] ) );
+				if ( $res['stopped'] && $res['error'] ) {
+					$notice = __( 'Revision cleanup failed and was rolled back: ', 'elementor-meta-deduper' ) . esc_html( (string) $res['error'] );
+					$notice_type = 'error';
+				} else {
+					$notice = sprintf( __( 'Deleted %1$d revisions. %2$d remain.', 'elementor-meta-deduper' ), $res['deleted'], $res['remaining'] );
+					if ( $res['remaining'] > 0 ) {
+						$notice     .= ' ' . __( 'Click again to continue.', 'elementor-meta-deduper' );
+						$notice_type = 'warning';
+					} else {
+						$notice     .= ' ' . __( 'Consider defining WP_POST_REVISIONS in wp-config.php to limit future growth.', 'elementor-meta-deduper' );
+						$notice_type = 'success';
+					}
+				}
+			}
+		}
+
 		$totals = Scanner::totals();
 		$sample = Scanner::sample( 50 );
-		self::view( $totals, $sample, $notice, $notice_type );
+		$revs   = Revisions::scan();
+		self::view( $totals, $sample, $revs, $notice, $notice_type );
 	}
 
-	private static function view( array $totals, array $sample, string $notice, string $notice_type ): void {
+	private static function view( array $totals, array $sample, array $revs, string $notice, string $notice_type ): void {
 		$keep = get_option( 'emdd_keep_mode', 'newest' );
 		?>
 		<div class="wrap">
@@ -174,6 +200,24 @@ final class Admin {
 				<p><label><input type="checkbox" name="backup_confirmed"> <strong><?php esc_html_e( 'I have taken a database backup.', 'elementor-meta-deduper' ); ?></strong></label></p>
 				<?php submit_button( __( 'Run cleanup', 'elementor-meta-deduper' ), 'primary' ); ?>
 			</form>
+
+			<hr>
+			<h2><?php esc_html_e( 'Revision cleanup', 'elementor-meta-deduper' ); ?></h2>
+			<?php if ( $revs['count'] > 0 ) : ?>
+				<p><?php echo esc_html( sprintf(
+					__( '%1$d revisions found, holding %2$.1f MB of postmeta (%3$.1f MB of it Elementor layout data). Revisions are disposable undo history; deleting them is safe.', 'elementor-meta-deduper' ),
+					$revs['count'], $revs['total_meta_mb'], $revs['elementor_mb']
+				) ); ?></p>
+				<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'Delete revisions now?', 'elementor-meta-deduper' ) ); ?>');">
+					<?php wp_nonce_field( 'emdd_revisions' ); ?>
+					<input type="hidden" name="emdd_action" value="clean_revisions">
+					<p><label><input type="checkbox" name="backup_confirmed_rev"> <strong><?php esc_html_e( 'I have taken a database backup.', 'elementor-meta-deduper' ); ?></strong></label></p>
+					<?php submit_button( __( 'Delete revisions', 'elementor-meta-deduper' ), 'secondary' ); ?>
+				</form>
+				<p class="description"><?php esc_html_e( 'Tip: define WP_POST_REVISIONS (e.g. 5) in wp-config.php to cap future revision growth.', 'elementor-meta-deduper' ); ?></p>
+			<?php else : ?>
+				<p><?php esc_html_e( 'No revisions to delete.', 'elementor-meta-deduper' ); ?></p>
+			<?php endif; ?>
 
 			<hr>
 			<h2><?php esc_html_e( 'Settings', 'elementor-meta-deduper' ); ?></h2>

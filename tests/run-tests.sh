@@ -58,5 +58,18 @@ restore_fixture
 RC2=$?
 
 echo
-if [ $RC -eq 0 ] && [ $RC2 -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "TEST FAILURES (rc=$RC rollback=$RC2)"; fi
-exit $(( RC + RC2 ))
+echo "### Chunked cleanup test (restores fixture) ###"
+restore_fixture
+"$PHP" "$HARNESS_DIR/test-chunked.php"
+RC3=$?
+
+echo
+echo "### Revision cleanup test (restores fixture) ###"
+restore_fixture
+"$PHP" "$HARNESS_DIR/test-revisions.php"
+RC4=$?
+
+echo
+TOTAL=$(( RC + RC2 + RC3 + RC4 ))
+if [ $TOTAL -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "TEST FAILURES (tests=$RC rollback=$RC2 chunked=$RC3 revisions=$RC4)"; fi
+exit $TOTAL

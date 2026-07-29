@@ -46,6 +46,7 @@ WP-CLI (recommended for anything non-trivial; browser cleanups are capped at 500
   wp elementor-dedup clean  [--keep=newest|oldest] [--batch-size=25] [--max-delete=3000] \
                             [--post-id=123] [--translations-only] [--include-divergent] \
                             [--resume] [--yes] [--format=table|json]
+  wp elementor-dedup revisions [--dry-run]         # delete post revisions (bloat source)
   wp elementor-dedup verify                        # residual check
   wp elementor-dedup optimize                      # evidence-based table rebuild (never cron)
 
