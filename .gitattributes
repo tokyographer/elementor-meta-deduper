@@ -1,0 +1,14 @@
+# Normalize line endings
+* text=auto eol=lf
+*.php text
+*.sh text eol=lf
+*.md text
+*.sql text
+
+# Exclude dev-only material from `git archive` / distribution zips
+/tests           export-ignore
+/docs            export-ignore
+/.gitignore      export-ignore
+/.gitattributes  export-ignore
+/.github         export-ignore
+/CONTRIBUTING.md export-ignore

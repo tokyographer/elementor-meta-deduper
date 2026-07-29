@@ -1,0 +1,32 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Runtime artifacts (never commit)
+*.log
+*.sql.gz
+*.dump
+manifest-*.json
+emdd-manifests/
+tests/.fixture/
+tests/*.out
+
+# Database dumps — block accidental dumps but keep tracked source SQL
+*.sql
+!docs/diagnostics.sql
+!**/*.schema.sql
+
+# Dependencies / build (not used yet, guarded for the future)
+vendor/
+node_modules/
+build/
+dist/
+*.zip
+
+# Local env overrides
+.env
+*.local
