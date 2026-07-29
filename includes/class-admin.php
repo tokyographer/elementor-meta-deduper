@@ -14,8 +14,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Admin {
 
-	/** Max rows a single browser cleanup may delete; above this → WP-CLI only. */
-	public const BROWSER_MAX_ROWS = 500;
+	/**
+	 * Max rows a single browser request will delete in one click. The job is processed in
+	 * resumable chunks: each click cleans up to this many rows (batched + transactional
+	 * internally) and reports how many remain, so large sites finish over a few clicks
+	 * without ever running an unbounded request. WP-CLI is still recommended for very large
+	 * or scripted runs, but the browser path now actually makes progress on its own.
+	 */
+	public const PER_REQUEST_MAX_ROWS = 3000;
 
 	public static function menu(): void {
 		add_management_page(
@@ -43,7 +49,7 @@ final class Admin {
 			$notice = __( 'Settings saved.', 'elementor-meta-deduper' );
 		}
 
-		// Cleanup (small, targeted only).
+		// Cleanup — processed in resumable chunks; each click cleans up to PER_REQUEST_MAX_ROWS.
 		if ( isset( $_POST['emdd_action'] ) && 'cleanup' === $_POST['emdd_action'] ) {
 			check_admin_referer( 'emdd_cleanup' );
 			if ( empty( $_POST['backup_confirmed'] ) ) {
@@ -53,33 +59,27 @@ final class Admin {
 				$keep = get_option( 'emdd_keep_mode', 'newest' );
 				$plan = Planner::build( array(
 					'keep'              => $keep,
-					'max_delete'        => self::BROWSER_MAX_ROWS,
+					'max_delete'        => self::PER_REQUEST_MAX_ROWS,
 					'post_id'           => (int) ( $_POST['post_id'] ?? 0 ),
 					'include_divergent' => ! empty( $_POST['include_divergent'] ),
 				) );
 
-				if ( $plan['totals']['delete_rows'] > self::BROWSER_MAX_ROWS || $plan['capped'] ) {
-					$notice = sprintf(
-						/* translators: %d row threshold */
-						__( 'This cleanup exceeds the browser limit of %d rows. Run it via WP-CLI: wp elementor-dedup clean', 'elementor-meta-deduper' ),
-						self::BROWSER_MAX_ROWS
-					);
-					$notice_type = 'error';
-				} elseif ( empty( $plan['items'] ) ) {
+				if ( empty( $plan['items'] ) ) {
 					$notice = $plan['skipped_review'] > 0
-						? sprintf( __( '%d post(s) need manual review; nothing auto-cleaned.', 'elementor-meta-deduper' ), $plan['skipped_review'] )
+						? sprintf( __( '%d post(s) are divergent or need review — tick "Also clean divergent posts" to include them, or review manually.', 'elementor-meta-deduper' ), $plan['skipped_review'] )
 						: __( 'Nothing to clean.', 'elementor-meta-deduper' );
+					$notice_type = 'info';
 				} else {
 					$path = Export::write( $plan );
 					$res  = Executor::run( $plan, array( 'batch_size' => 25 ) );
 					$ids  = array_map( static fn( $i ) => (int) $i['post_id'], $plan['items'] );
 					$verify = $res['stopped'] ? null : Verifier::verify( $ids );
 					Audit::record( array(
-						'run_id'    => $plan['run_id'],
-						'retention' => $plan['keep'],
-						'planned'   => $plan['totals'],
-						'completed' => array( 'deleted_rows' => $res['deleted_rows'], 'posts_done' => $res['posts_done'] ),
-						'sql_error' => $res['error'],
+						'run_id'      => $plan['run_id'],
+						'retention'   => $plan['keep'],
+						'planned'     => $plan['totals'],
+						'completed'   => array( 'deleted_rows' => $res['deleted_rows'], 'posts_done' => $res['posts_done'] ),
+						'sql_error'   => $res['error'],
 						'export_path' => $path,
 						'verification' => $verify,
 					) );
@@ -87,8 +87,21 @@ final class Admin {
 						$notice = __( 'Cleanup failed and was rolled back: ', 'elementor-meta-deduper' ) . esc_html( (string) $res['error'] );
 						$notice_type = 'error';
 					} else {
-						$notice = sprintf( __( 'Deleted %1$d rows across %2$d posts. Manifest: %3$s', 'elementor-meta-deduper' ), $res['deleted_rows'], $res['posts_done'], esc_html( $path ) );
-						$notice_type = ( $verify && $verify['clean'] ) ? 'success' : 'warning';
+						// Recompute remaining work so the user knows whether to click again.
+						$after     = Scanner::totals();
+						$remaining = (int) $after['redundant_rows'];
+						$notice    = sprintf(
+							/* translators: 1: rows deleted, 2: posts, 3: rows remaining */
+							__( 'Deleted %1$d rows across %2$d posts. %3$d redundant rows remain.', 'elementor-meta-deduper' ),
+							$res['deleted_rows'], $res['posts_done'], $remaining
+						);
+						if ( $remaining > 0 ) {
+							$notice     .= ' ' . __( 'Click “Run cleanup” again to continue.', 'elementor-meta-deduper' );
+							$notice_type = 'warning';
+						} else {
+							$notice     .= ' ' . __( 'All duplicates cleared — now regenerate Elementor CSS and clear caches.', 'elementor-meta-deduper' );
+							$notice_type = 'success';
+						}
 					}
 				}
 			}
@@ -111,7 +124,7 @@ final class Admin {
 			<?php if ( $totals['redundant_rows'] > 0 ) : ?>
 				<div class="notice notice-warning"><p>
 					<strong><?php echo esc_html( sprintf( __( '%1$d redundant rows across %2$d posts (%3$.1f MB).', 'elementor-meta-deduper' ), $totals['redundant_rows'], $totals['affected_posts'], $totals['redundant_bytes'] / 1048576 ) ); ?></strong>
-					<?php esc_html_e( 'Large cleanups must run via WP-CLI. Update SitePress + WPML Page Builders + Elementor to stop regrowth.', 'elementor-meta-deduper' ); ?>
+					<?php echo esc_html( sprintf( __( 'Cleanup runs in chunks of up to %d rows per click. Update SitePress + WPML Page Builders + Elementor to stop regrowth.', 'elementor-meta-deduper' ), self::PER_REQUEST_MAX_ROWS ) ); ?>
 				</p></div>
 			<?php else : ?>
 				<div class="notice notice-success"><p><?php esc_html_e( 'No duplicate Elementor meta found.', 'elementor-meta-deduper' ); ?></p></div>
@@ -149,15 +162,17 @@ final class Admin {
 			<?php endif; ?>
 
 			<hr>
-			<h2><?php esc_html_e( 'Small targeted cleanup', 'elementor-meta-deduper' ); ?></h2>
-			<p><?php echo esc_html( sprintf( __( 'Browser cleanups are limited to %d rows. Larger runs are rejected — use WP-CLI.', 'elementor-meta-deduper' ), self::BROWSER_MAX_ROWS ) ); ?></p>
+			<h2><?php esc_html_e( 'Run cleanup', 'elementor-meta-deduper' ); ?></h2>
+			<p><?php echo esc_html( sprintf( __( 'Each click cleans up to %d rows (batched and transactional). If rows remain, just click again until it reports zero. Identical duplicates are cleaned automatically; tick the box below to also clean divergent posts.', 'elementor-meta-deduper' ), self::PER_REQUEST_MAX_ROWS ) ); ?></p>
 			<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'Run cleanup now?', 'elementor-meta-deduper' ) ); ?>');">
 				<?php wp_nonce_field( 'emdd_cleanup' ); ?>
 				<input type="hidden" name="emdd_action" value="cleanup">
-				<p><label><?php esc_html_e( 'Restrict to post ID (optional):', 'elementor-meta-deduper' ); ?> <input type="number" name="post_id" value="0"></label></p>
-				<p><label><input type="checkbox" name="include_divergent"> <?php esc_html_e( 'Also clean divergent posts (keeps the ' . '', 'elementor-meta-deduper' ); echo esc_html( $keep ); ?> row)</label></p>
+				<p><label><?php esc_html_e( 'Restrict to post ID (optional, 0 = all):', 'elementor-meta-deduper' ); ?> <input type="number" name="post_id" value="0"></label></p>
+				<p><label><input type="checkbox" name="include_divergent"> <?php
+					/* translators: %s: newest|oldest */
+					echo esc_html( sprintf( __( 'Also clean divergent posts (keeps the %s row)', 'elementor-meta-deduper' ), $keep ) ); ?></label></p>
 				<p><label><input type="checkbox" name="backup_confirmed"> <strong><?php esc_html_e( 'I have taken a database backup.', 'elementor-meta-deduper' ); ?></strong></label></p>
-				<?php submit_button( __( 'Run small cleanup', 'elementor-meta-deduper' ), 'primary' ); ?>
+				<?php submit_button( __( 'Run cleanup', 'elementor-meta-deduper' ), 'primary' ); ?>
 			</form>
 
 			<hr>
