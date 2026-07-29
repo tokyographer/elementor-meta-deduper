@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       Elementor Meta Deduper
- * Plugin URI:        https://github.com/OWNER/elementor-meta-deduper
+ * Plugin URI:        https://github.com/tokyographer/elementor-meta-deduper
  * Description:       Detects and safely removes duplicate single-value Elementor postmeta rows caused by the WPML × Elementor translation-sync bug. Fail-loud, batched, transactional cleanup with manifest export, verification, evidence-based optimize, audit log, and a notify-only recurrence monitor. WP-CLI-first for large runs.
  * Version:           2.0.0
  * Requires at least: 6.0
