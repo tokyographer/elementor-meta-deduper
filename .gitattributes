@@ -12,3 +12,4 @@
 /.gitattributes  export-ignore
 /.github         export-ignore
 /CONTRIBUTING.md export-ignore
+/CLAUDE.md       export-ignore

@@ -19,11 +19,14 @@ one. Pages accumulate dozens or hundreds of copies of their layout JSON, bloatin
 This plugin:
 
 * **Scans** (read-only) for duplicate single-value Elementor meta and reports the worst pages.
-* **Cleans** safely — keeps exactly one row per page (newest or oldest, your choice), wrapped
-  in a transaction and logged. Optionally also removes revisions, orphaned meta, and transients.
+* **Cleans** safely — keeps exactly one row per page and key (newest or oldest, your choice),
+  in batched transactions, with a pre-delete manifest and an audit log.
+* **Cleans revisions** as a separate, explicit action (Elementor stores a full layout copy per
+  revision). Autosaves are left alone.
 * **Reclaims disk** with a table rebuild (includes the MySQL 8.4 `wp_posts` workaround).
-* **Guards weekly** via WP-Cron: emails an admin if duplicates reappear — your signal that the
-  underlying WPML/Elementor bug is still active.
+* **Guards weekly** (Action Scheduler when available, else WP-Cron): emails an admin if
+  duplicates reappear — your signal that the underlying WPML/Elementor bug is still active.
+  Notify-only; the monitor never deletes.
 
 Safety: only touches the whitelisted single-value Elementor keys (`_elementor_data`,
 `_elementor_page_settings`, `_elementor_edit_mode`, `_elementor_template_type`,
@@ -34,10 +37,11 @@ the WPML Page Builders glue module + Elementor to stop the regrowth.
 
 == Usage ==
 
-Admin: Tools → Elementor Meta Deduper. Scan is automatic on load; tick the cleanup options and
-run. Always back up first, then regenerate Elementor CSS and clear caches afterward.
+Admin: Tools → Elementor Meta Deduper. Scan is automatic on load. "Run cleanup" processes up to
+3,000 rows per click and reports how many remain — click again until zero. "Revision cleanup" is
+a separate button. Always back up first, then regenerate Elementor CSS and clear caches afterward.
 
-WP-CLI (recommended for anything non-trivial; browser cleanups are capped at 500 rows):
+WP-CLI (recommended for very large or scripted runs):
 
   wp elementor-dedup scan                          # accurate totals + classification
   wp elementor-dedup plan   [--include-divergent]  # dry deletion plan
@@ -46,7 +50,7 @@ WP-CLI (recommended for anything non-trivial; browser cleanups are capped at 500
   wp elementor-dedup clean  [--keep=newest|oldest] [--batch-size=25] [--max-delete=3000] \
                             [--post-id=123] [--translations-only] [--include-divergent] \
                             [--resume] [--yes] [--format=table|json]
-  wp elementor-dedup revisions [--dry-run]         # delete post revisions (bloat source)
+  wp elementor-dedup revisions [--dry-run] [--yes] # delete post revisions (autosaves kept)
   wp elementor-dedup verify                        # residual check
   wp elementor-dedup optimize                      # evidence-based table rebuild (never cron)
 

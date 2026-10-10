@@ -30,20 +30,22 @@ See [`docs/`](docs/) for the full diagnosis, database analysis, and architecture
 
 ## What it does
 
-- **Scan** (read-only) with **accurate totals** — full `COUNT(*)` aggregates, never derived from a
-  limited display query.
-- **Classify** each affected post as **identical** (all copies byte-equal → lossless to dedup) or
+- **Scan** (read-only) with **accurate totals** across all five single-value Elementor keys
+  (`_elementor_data`, `_elementor_page_settings`, `_elementor_edit_mode`, `_elementor_template_type`,
+  `_elementor_version`) — full `COUNT(*)` aggregates, never derived from a limited display query.
+- **Classify** each affected post + key as **identical** (all copies byte-equal → lossless to dedup) or
   **divergent** (copies differ → needs an explicit retention policy or manual review), and as **WPML
   original / translation** (classified from the WPML tables, never assumed).
 - **Plan + export a manifest** (JSON: run ID, post, row IDs, retained ID, hashes, sizes, reason) *before*
   deleting anything.
-- **Clean** in batches, each batch its own transaction, with a fail-loud DB layer so a failed statement
-  **rolls back** instead of silently committing a partial result. Resumable, idempotent, with a
-  `--max-delete` cap and a run-lock.
+- **Clean** every one of the five keys in batches, each batch its own transaction, with a fail-loud DB
+  layer so a failed statement **rolls back** instead of silently committing a partial result. Resumable,
+  idempotent, with a `--max-delete` cap and a run-lock. The plan and the scan count the same thing, so
+  "rows remaining" always converges to zero.
 - **Clean revisions** (separate, explicit action; autosaves are left alone) — Elementor stores a full layout copy per
   post revision, so revision buildup is a major postmeta bloat source independent of the
   duplication bug. Batched, transactional, backup-gated; never runs from cron.
-- **Verify** afterward (re-scan for residue + invalidate post caches).
+- **Verify** afterward (re-scan for residual excess rows + invalidate post caches).
 - **Optimize** tables with **evidence** of reclaimed space (detects MySQL vs MariaDB; applies the MySQL
   strict-mode `wp_posts` workaround only when needed). Never runs from cron.
 - **Monitor** on a schedule — **notify-only**, never deletes — with thresholds, trend, and duplicate-alert
@@ -69,11 +71,14 @@ See [`docs/`](docs/) for the full diagnosis, database analysis, and architecture
 
 **Always take a database backup first.** Run on staging before production.
 
-### Admin (small, targeted cleanups)
+### Admin (chunked cleanups without SSH)
 
-The **Tools → Elementor Meta Deduper** screen scans and reports on load, shows the worst pages, and lets
-you run a **small** cleanup (capped at 500 rows). Larger runs are intentionally rejected with a pointer to
-WP-CLI. A backup-confirmation checkbox is required before any destructive action.
+The **Tools → Elementor Meta Deduper** screen scans and reports on load and shows the worst pages. **Run
+cleanup** processes up to 3,000 rows per click (batched and transactional inside) and tells you how many
+rows remain; click again until it reports zero. Identical duplicates are cleaned automatically; tick
+*Also clean divergent posts* to apply the retention policy to divergent ones. **Revision cleanup** is a
+separate, backup-gated button on the same screen. A backup-confirmation checkbox is required before any
+destructive action. WP-CLI is still recommended for very large or scripted runs.
 
 ### WP-CLI (recommended for anything non-trivial)
 
@@ -85,7 +90,8 @@ wp elementor-dedup clean  --dry-run              # plan + manifest, no deletion
 wp elementor-dedup clean  [--keep=newest|oldest] [--batch-size=25] [--max-delete=3000] \
                           [--post-id=123] [--translations-only] [--include-divergent] \
                           [--resume] [--yes] [--format=table|json]
-wp elementor-dedup revisions [--dry-run] [--yes]  # delete post revisions (bloat source)
+wp elementor-dedup revisions [--dry-run] [--yes] [--batch-size=200] [--max-delete=5000]
+                                                 # delete post revisions (autosaves kept)
 wp elementor-dedup verify                        # residual check
 wp elementor-dedup optimize                      # evidence-based rebuild (never cron)
 ```
@@ -109,6 +115,10 @@ posts require an explicit decision.
 
 - Regenerate Elementor CSS: **Elementor → Tools → Regenerate CSS & Data**
 - Clear your page cache (e.g. WP Rocket) and object cache (e.g. `wp redis flush`)
+- Run `wp elementor-dedup optimize` once: InnoDB keeps freed space inside the table file until it is
+  rebuilt, so `wp db size` does not shrink after deletions on its own
+- After a revision cleanup, add `define( 'WP_POST_REVISIONS', 5 );` to `wp-config.php` so revisions
+  cannot pile up again
 - **Fix the root cause:** update SitePress + the WPML Page Builders glue module + Elementor, then re-scan
   to confirm duplicates stay at one row per page.
 
@@ -127,8 +137,18 @@ tests/run-tests.sh
 ```
 
 The suite covers accurate totals, identical/divergent + translation classification, batching, caps,
-idempotency, verification, and — critically — **injected-failure rollback** (a forced SQL error
-mid-batch must leave all rows intact). See [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
+idempotency, verification, chunked admin convergence, revision cleanup, all-keys planning, and —
+critically — **injected-failure rollback** (a forced SQL error mid-batch must leave all rows intact). See
+[`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
+
+### Building a release zip
+
+The shipped plugin is the root PHP files plus `includes/`, `README.md`, `readme.txt`, `CHANGELOG.md` and
+`LICENSE`. `tests/` and `docs/` are export-ignored (`.gitattributes`), so from a clean checkout:
+
+```bash
+git archive --format=zip --prefix=elementor-meta-deduper/ -o elementor-meta-deduper-2.1.0.zip HEAD
+```
 
 ## Documentation
 

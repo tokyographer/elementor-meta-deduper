@@ -18,11 +18,12 @@ Status legend: ✅ implemented this pass · ⬜ planned (follow-up).
 | ID | Item | Fix | Files | Tests | Status |
 |----|------|-----|-------|-------|--------|
 | H1 | No batching / no cap | Batch executor: 25 posts/batch, 3,000-row cap, per-batch txn, resumable, idempotent | `class-executor.php`, `class-planner.php` | T-batch, T-cap, T-resume | ✅ |
-| H2 | Destructive work in one browser request | WP-CLI-first; admin rejects cleanups over threshold | `class-cli.php`, `class-admin.php` | T-cli-exit, T-admin-threshold | ✅ |
+| H2 | Destructive work in one browser request | WP-CLI-first; admin processes resumable 3,000-row chunks per click (originally: rejected over threshold, which left sites without WP-CLI uncleanable) | `class-cli.php`, `class-admin.php` | T-cli-exit, T-admin-chunked | ✅ |
 | H3 | No cache invalidation | Finalize: `clean_post_cache()` per post; document Redis + Elementor CSS regen | `class-verifier.php` | T-cache (manual) | ✅ |
 | H4 | Retention ignores identical/divergent | Analyzer classifies; auto-clean identical; divergent needs policy/flag | `class-analyzer.php` | T-identical, T-divergent | ✅ |
 | H5 | No pre-delete manifest | Dry-run plan + JSON/table manifest before delete | `class-planner.php`, `class-export.php` | T-plan, T-export | ✅ |
-| H6 | False success / no verification | Verifier re-scans; report reflects real counts + residue | `class-verifier.php` | T-verify | ✅ |
+| H6 | False success / no verification | Verifier re-scans; report reflects real counts + residue (excess rows, same meaning as Scanner since 2.1.0) | `class-verifier.php` | T-verify | ✅ |
+| H7 | Plan only covered `_elementor_data` while Scanner/Verifier/Monitor counted all five keys → "rows remain" could never reach zero (seen in a production audit log, 2026-08) | Planner iterates every key; JSON validity enforced only for `_elementor_data` | `class-planner.php`, `class-analyzer.php` | T-allkeys | ✅ 2.1.0 |
 
 ## MEDIUM — implement now where cheap, else follow-up
 
@@ -32,6 +33,8 @@ Status legend: ✅ implemented this pass · ⬜ planned (follow-up).
 | M2 | Recurrence guard lacks thresholds/trend | History + deltas + threshold + suppression + report link; Action Scheduler if present | `class-monitor.php` | T-monitor | ✅ |
 | M3 | No concurrency guard | Single-run lock; idempotent batches | `class-executor.php` | T-concurrent | ✅ (lock) |
 | M4 | Thin audit trail | Structured per-run audit log (UUID, actor, env, versions, policy, counts, export, verify, optimize) | `class-audit.php` | T-audit | ✅ |
+| M5 | Admin runs leaked one `emdd_progress_<uuid>` option per click | Admin calls `Executor::clear_progress()` after a completed run (CLI already did) | `class-admin.php` | — | ✅ 2.1.0 |
+| M6 | Revision bloat (full Elementor layout per revision) not addressed | Separate `Revisions` service: batched, transactional, capped, autosaves skipped; admin button + `wp elementor-dedup revisions` | `class-revisions.php` | T-revisions | ✅ 2.1.0 |
 
 ## OPTIONAL — follow-up
 

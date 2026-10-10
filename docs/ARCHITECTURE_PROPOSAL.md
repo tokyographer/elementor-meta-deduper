@@ -11,15 +11,16 @@ elementor-meta-deduper.php        Bootstrap: constants, autoload, hooks, activat
 includes/
   class-database.php     DatabaseQueryException + execute_or_fail(); server flavor/version detection
   class-scanner.php      Read-only totals (accurate, no LIMIT) + display sample; targeted-key set
-  class-analyzer.php     Per-post classification: identical | divergent | invalid-json; hashes
-  class-planner.php      Builds a deletion PLAN (manifest rows) honoring retention policy + caps
+  class-analyzer.php     Per-(post, key) classification: identical | divergent | invalid-json; hashes
+  class-planner.php      Builds a deletion PLAN over ALL five keys honoring retention policy + caps
   class-export.php       Writes/loads the manifest (JSON) — the pre-delete record
   class-executor.php     Batched, transactional deletes via execute_or_fail(); run-lock; resume
-  class-verifier.php     Re-scan + cache invalidation; confirms residue == 0 for scope
+  class-revisions.php    Separate revision cleanup (scan + batched delete); skips autosaves; never cron
+  class-verifier.php     Re-scan + cache invalidation; residual EXCESS rows (same meaning as Scanner)
   class-optimizer.php    Env-aware table rebuild; measured before/after; manual only
   class-audit.php        Structured per-run audit log (option/table); metadata + hashes only
-  class-admin.php        Admin controller: scan/report/warn; small cleanups only; CLI hand-off
-  class-cli.php          WP-CLI controller: scan/plan/export/clean/verify/optimize; exit codes
+  class-admin.php        Admin controller: scan/report/warn; chunked cleanups; revision cleanup
+  class-cli.php          WP-CLI controller: scan/plan/export/clean/revisions/verify/optimize; exit codes
   class-monitor.php      Recurrence: notify-only, thresholds, trend, suppression; AS or WP-Cron
 ```
 
@@ -39,13 +40,23 @@ monitor runs on schedule: scan + analyze only → notify; never plan/execute
   rows or throws `DatabaseQueryException` (checks `=== false` and `$wpdb->last_error`).
 - **`Scanner::totals(): array`** — every total from a dedicated aggregate query; `sample(int $limit)` is
   the only place `LIMIT` appears.
-- **`Analyzer::classify(int $post_id, string $key): array`** — `{kind, copies, distinct, keep_id,
-  delete_ids, hashes, sizes, json_valid, needs_review, reason}`.
-- **`Planner::build(policy): Plan`** — ordered manifest rows within `max_delete`; marks `needs_review`
-  posts as skipped with reason. Deterministic and idempotent.
+- **`Analyzer::classify(int $post_id, string $key, string $keep_mode): array`** — `{kind, copies,
+  distinct, keep_id, delete_ids, keep_hash, json_valid, needs_review, reason, language, translation}`.
+  `json_valid` is only enforced for `Database::JSON_KEYS` (`_elementor_data`); other keys hold plain
+  strings.
+- **`Planner::build(policy): Plan`** — one item per affected (post, key) pair across every key in
+  `Database::KEYS`, ordered, within `max_delete` (whole-item atomic); `needs_review` items skipped with
+  reason. `totals.posts` counts distinct posts, `totals.items` counts pairs. Deterministic and idempotent.
+  Invariant: the plan targets exactly what `Scanner::totals()` counts, so repeated runs converge to zero.
 - **`Executor::run(Plan, batch_size): Result`** — per-batch `START TRANSACTION` → `execute_or_fail` for
   each delete → `COMMIT`; on any throw `ROLLBACK` that batch and stop; records progress for `--resume`.
-- **`Verifier::verify(scope): array`** — re-scan residue; `clean_post_cache()` per affected post.
+- **`Verifier::verify(scope): array`** — re-scan residual excess rows (`SUM(c-1)`, identical to the
+  scanner's `redundant_rows`); `clean_post_cache()` per affected post.
+- **`Revisions::scan()` / `Revisions::clean(opts)`** — separate from the dedup path. Deletes revisions
+  (meta + term relationships + post) in per-batch transactions through `execute_or_fail()`; capped;
+  resumable by repeat. Autosaves (`post_name LIKE '%-autosave-v1'`) are excluded because they can hold
+  unsaved editor work. The LIMIT is interpolated as a cast int rather than via `$wpdb->prepare()`, since
+  the literal `%` in the autosave filter would otherwise be read as a placeholder.
 - **`Optimizer::run(): array`** — detect flavor/version; measure size; rebuild; remeasure; report bytes
   actually reclaimed (evidence) or a warning if none.
 

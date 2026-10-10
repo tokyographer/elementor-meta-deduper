@@ -38,17 +38,24 @@ destructive test; each destructive test restores the fixture first so tests are 
 | T-verify | Post-clean verification | integration | residue 0 for scope; caches invalidated | ✅ |
 | T-optimize-evidence | Optimizer reports real reclaim | integration | before/after bytes measured; no false claim | ✅ |
 | T-cli-exit | CLI exit codes | integration | 0/2/3/4/5 per HARDENING_PLAN | ✅ |
-| T-admin-threshold | Admin rejects large cleanup | integration | over-threshold → refused, points to CLI | ✅ |
+| T-admin-chunked | Admin chunked cleanup converges | integration | repeated 3,000-row "clicks" drive redundant rows to 0 (`test-chunked.php`) | ✅ |
+| T-revisions | Revision cleanup | integration | cap respected; repeat-until-zero; meta removed; idempotent; autosaves untouched (`test-revisions.php`) | ✅ |
+| T-allkeys | Duplicates in keys other than `_elementor_data` | integration | planned + cleaned; plain-string keys not "needs review"; Scanner and Verifier agree on excess (`test-allkeys.php`) | ✅ |
 | T-admin-auth | Nonce + capability checks | integration | missing nonce / non-admin → denied | ✅ |
 | T-audit | Audit record completeness | integration | UUID, actor, env, versions, counts, export, verify present | ✅ |
 | T-monitor | Recurrence notify-only + threshold | integration | emails on growth over threshold; never deletes; suppresses dupes | ✅ |
 
 ## Harness
 
-- `tests/run-tests.sh` — bash harness using the direct `mysql` client + Local socket (WP-CLI has the
-  `/tmp/mysql.sock` bug on Local). Restores `emdd_fixture` before each destructive case, invokes the
-  plugin's service methods via `wp eval-file` where possible, else via direct SQL that mirrors the
-  executor, and asserts row counts / exit codes.
+- `tests/run-tests.sh` — bash runner using the direct `mysql` client + socket (no WordPress bootstrap).
+  Restores `emdd_fixture` before each destructive file, then runs `tests.php`, `test-rollback.php`,
+  `test-chunked.php`, `test-revisions.php` and `test-allkeys.php` through `tests/harness.php`, a
+  mysqli-backed `$wpdb` shim with minimal WP function stubs, so the real service classes execute
+  against the fixture only. Fully env-driven: `EMDD_SOCK`, `EMDD_DB`, `EMDD_DBUSER`, `EMDD_DBPASS`,
+  `EMDD_BACKUP`, optional `EMDD_SRCDB`.
+- Fixture-bound counts in `tests.php` (83 posts, 42/41 split, 2,239 rows) describe the original
+  `_elementor_data`-only snapshot. Since 2.1.0 plans span all five keys, so a fixture that also holds
+  duplicates in the other keys will shift the plan's `posts`/`delete_rows` expectations.
 - Failure injection (T-fail): a batch is pointed at a non-existent column / a `BEFORE DELETE` trigger
   raises `SIGNAL SQLSTATE '45000'`, forcing `$wpdb->query()` to return false mid-transaction.
 
