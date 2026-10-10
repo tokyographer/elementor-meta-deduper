@@ -3,7 +3,7 @@ Contributors: (your-wporg-username)
 Tags: elementor, wpml, database, cleanup, postmeta, optimization
 Requires at least: 6.0
 Requires PHP: 8.0
-Stable tag: 2.0.0
+Stable tag: 2.1.0
 License: GPLv2 or later
 
 Detects and safely removes duplicate single-value Elementor postmeta rows caused by the
@@ -53,6 +53,13 @@ WP-CLI (recommended for anything non-trivial; browser cleanups are capped at 500
 Exit codes: 0 ok · 1 usage · 2 failed+rolledback · 3 partial/capped · 4 residue · 5 needs-review.
 
 == Changelog ==
+
+= 2.1.0 =
+* Fixed: cleanup plan now covers all five Elementor meta keys, not only _elementor_data, so "rows remain" always converges to zero.
+* Fixed: JSON validity only enforced for _elementor_data; plain-string keys no longer flagged for review.
+* Fixed: verifier reports excess rows (same meaning as the scanner).
+* Fixed: admin cleanup no longer leaves an emdd_progress_* option behind per run.
+* Added: revision cleanup (wp elementor-dedup revisions, admin action); autosaves are skipped.
 
 = 2.0.0 =
 * Hardened for production. Component architecture (see docs/ARCHITECTURE_PROPOSAL.md).

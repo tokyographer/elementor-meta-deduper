@@ -5,7 +5,8 @@
  * distinct, explicitly-invoked action, never run from cron.
  *
  * Elementor stores a full layout-JSON copy per revision, so revision buildup is a major
- * source of wp_postmeta bloat independent of the WPML duplication bug.
+ * source of wp_postmeta bloat independent of the WPML duplication bug. Autosaves
+ * (post_name "<id>-autosave-v1") are skipped: they can hold unsaved editor work.
  *
  * @package elementor-meta-deduper
  */
@@ -19,6 +20,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Revisions {
 
 	/**
+	 * Revisions that are safe to delete: real revisions, not in-progress autosaves.
+	 * Not passed through $wpdb->prepare() (the literal % would be treated as a placeholder).
+	 */
+	private static function where( string $alias = '' ): string {
+		$a = $alias ? $alias . '.' : '';
+		return "{$a}post_type='revision' AND {$a}post_name NOT LIKE '%-autosave-v1'";
+	}
+
+	/**
 	 * Read-only scan of revision bloat.
 	 *
 	 * @return array{count:int,elementor_rows:int,elementor_mb:float,total_meta_mb:float}
@@ -26,13 +36,15 @@ final class Revisions {
 	public static function scan(): array {
 		global $wpdb;
 
-		$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type='revision'" );
+		$where   = self::where();
+		$where_p = self::where( 'p' );
+		$count   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE {$where}" );
 
 		$row = $wpdb->get_row(
 			"SELECT COUNT(*) AS rows_n, COALESCE(SUM(LENGTH(pm.meta_value)),0) AS bytes
 			 FROM {$wpdb->postmeta} pm
 			 JOIN {$wpdb->posts} p ON p.ID=pm.post_id
-			 WHERE p.post_type='revision' AND pm.meta_key='_elementor_data'",
+			 WHERE {$where_p} AND pm.meta_key='_elementor_data'",
 			ARRAY_A
 		);
 
@@ -40,7 +52,7 @@ final class Revisions {
 			"SELECT COALESCE(SUM(LENGTH(pm.meta_value)),0)
 			 FROM {$wpdb->postmeta} pm
 			 JOIN {$wpdb->posts} p ON p.ID=pm.post_id
-			 WHERE p.post_type='revision'"
+			 WHERE {$where_p}"
 		);
 
 		return array(
@@ -65,6 +77,7 @@ final class Revisions {
 		$max_delete = max( 1, (int) ( $opts['max_delete'] ?? 5000 ) );
 
 		$result = array( 'deleted' => 0, 'batches' => 0, 'stopped' => false, 'error' => null, 'remaining' => 0 );
+		$where  = self::where();
 
 		if ( ! Database::acquire_lock() ) {
 			$result['stopped'] = true;
@@ -74,12 +87,8 @@ final class Revisions {
 
 		try {
 			while ( $result['deleted'] < $max_delete ) {
-				$ids = $wpdb->get_col(
-					$wpdb->prepare(
-						"SELECT ID FROM {$wpdb->posts} WHERE post_type='revision' ORDER BY ID LIMIT %d",
-						min( $batch_size, $max_delete - $result['deleted'] )
-					)
-				);
+				$limit = (int) min( $batch_size, $max_delete - $result['deleted'] );
+				$ids   = $wpdb->get_col( "SELECT ID FROM {$wpdb->posts} WHERE {$where} ORDER BY ID LIMIT {$limit}" );
 				$ids = array_map( 'intval', $ids ?: array() );
 				if ( ! $ids ) {
 					break;
@@ -109,7 +118,7 @@ final class Revisions {
 			Database::release_lock();
 		}
 
-		$result['remaining'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type='revision'" );
+		$result['remaining'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE {$where}" );
 		return $result;
 	}
 }

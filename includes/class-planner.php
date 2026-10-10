@@ -24,7 +24,8 @@ final class Planner {
 	 *   translations_only:bool,
 	 * }
 	 * @return array{run_id:string,created:string,keep:string,items:array,
-	 *               totals:array,capped:bool,skipped_review:int}
+	 *               totals:array{posts:int,items:int,delete_rows:int,delete_bytes:int,cap:int},
+	 *               capped:bool,skipped_review:int}
 	 */
 	public static function build( array $opts ): array {
 		$keep   = ( 'oldest' === ( $opts['keep'] ?? 'newest' ) ) ? 'oldest' : 'newest';
@@ -33,7 +34,15 @@ final class Planner {
 		$only_t = ! empty( $opts['translations_only'] );
 		$one    = isset( $opts['post_id'] ) ? (int) $opts['post_id'] : 0;
 
-		$ids = $one ? array( $one ) : Scanner::affected_post_ids( '_elementor_data' );
+		// Every supported key is planned; Scanner/Verifier/Monitor count all of them, so the
+		// plan must cover all of them or the admin "rows remain" loop never converges.
+		$targets = array();
+		foreach ( Database::KEYS as $key ) {
+			$ids = $one ? array( $one ) : Scanner::affected_post_ids( $key );
+			foreach ( $ids as $pid ) {
+				$targets[] = array( $pid, $key );
+			}
+		}
 
 		$items          = array();
 		$planned_del    = 0;
@@ -41,8 +50,8 @@ final class Planner {
 		$skipped_review = 0;
 		$capped         = false;
 
-		foreach ( $ids as $pid ) {
-			$c = Analyzer::classify( $pid, '_elementor_data', $keep );
+		foreach ( $targets as list( $pid, $key ) ) {
+			$c = Analyzer::classify( $pid, $key, $keep );
 			if ( 'single' === $c['kind'] ) {
 				continue;
 			}
@@ -80,6 +89,11 @@ final class Planner {
 			$planned_bytes += $c['delete_bytes'];
 		}
 
+		$posts = array();
+		foreach ( $items as $it ) {
+			$posts[ $it['post_id'] ] = true;
+		}
+
 		return array(
 			'run_id'         => self::run_id(),
 			'created'        => current_time( 'mysql' ),
@@ -88,7 +102,8 @@ final class Planner {
 			'skipped_review' => $skipped_review,
 			'capped'         => $capped,
 			'totals'         => array(
-				'posts'         => count( $items ),
+				'posts'         => count( $posts ),
+				'items'         => count( $items ),
 				'delete_rows'   => $planned_del,
 				'delete_bytes'  => $planned_bytes,
 				'cap'           => $cap,

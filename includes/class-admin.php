@@ -87,6 +87,9 @@ final class Admin {
 						$notice = __( 'Cleanup failed and was rolled back: ', 'elementor-meta-deduper' ) . esc_html( (string) $res['error'] );
 						$notice_type = 'error';
 					} else {
+						// Browser runs are never resumed (each click builds a fresh plan), so drop the
+						// progress option here instead of leaking one per run into wp_options.
+						Executor::clear_progress( $plan['run_id'] );
 						// Recompute remaining work so the user knows whether to click again.
 						$after     = Scanner::totals();
 						$remaining = (int) $after['redundant_rows'];
@@ -189,7 +192,7 @@ final class Admin {
 
 			<hr>
 			<h2><?php esc_html_e( 'Run cleanup', 'elementor-meta-deduper' ); ?></h2>
-			<p><?php echo esc_html( sprintf( __( 'Each click cleans up to %d rows (batched and transactional). If rows remain, just click again until it reports zero. Identical duplicates are cleaned automatically; tick the box below to also clean divergent posts.', 'elementor-meta-deduper' ), self::PER_REQUEST_MAX_ROWS ) ); ?></p>
+			<p><?php echo esc_html( sprintf( __( 'Each click cleans up to %d rows (batched and transactional). If rows remain, just click again until it reports zero. All five Elementor meta keys are covered. Identical duplicates are cleaned automatically; tick the box below to also clean divergent posts.', 'elementor-meta-deduper' ), self::PER_REQUEST_MAX_ROWS ) ); ?></p>
 			<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'Run cleanup now?', 'elementor-meta-deduper' ) ); ?>');">
 				<?php wp_nonce_field( 'emdd_cleanup' ); ?>
 				<input type="hidden" name="emdd_action" value="cleanup">

@@ -1,6 +1,6 @@
 <?php
 /**
- * Analyzer: per-post duplicate classification + WPML translation awareness.
+ * Analyzer: per-(post, key) duplicate classification + WPML translation awareness.
  * Decides retention safety; never deletes.
  *
  * @package elementor-meta-deduper
@@ -55,7 +55,10 @@ final class Analyzer {
 				break;
 			}
 		}
-		$json_valid = ( '' === $keep_value ) ? false : ( null !== json_decode( $keep_value, true ) );
+		// Only _elementor_data is JSON; other keys hold plain strings (e.g. "builder", "4.3.4").
+		$json_valid = in_array( $meta_key, Database::JSON_KEYS, true )
+			? ( '' !== $keep_value && null !== json_decode( $keep_value, true ) )
+			: true;
 
 		$kind = ( $copies <= 1 ) ? 'single' : ( 1 === $distinct ? 'identical' : 'divergent' );
 
@@ -127,12 +130,12 @@ final class Analyzer {
 	}
 
 	/**
-	 * Aggregate classification summary over all affected posts (full, accurate).
+	 * Aggregate classification summary over all affected (post, key) pairs across every
+	 * supported key. Kind counters count pairs; WPML counters count distinct posts.
 	 *
 	 * @return array
 	 */
 	public static function summary( string $keep_mode ): array {
-		$ids = Scanner::affected_post_ids( '_elementor_data' );
 		$out = array(
 			'identical'       => 0,
 			'divergent'       => 0,
@@ -141,29 +144,39 @@ final class Analyzer {
 			'originals'       => 0,
 			'not_in_wpml'     => 0,
 			'auto_cleanable'  => 0,
+			'by_key'          => array(),
 		);
-		foreach ( $ids as $id ) {
-			$c = self::classify( $id, '_elementor_data', $keep_mode );
-			if ( 'identical' === $c['kind'] ) {
-				++$out['identical'];
-			} elseif ( 'divergent' === $c['kind'] ) {
-				++$out['divergent'];
-			}
-			if ( $c['needs_review'] ) {
-				++$out['needs_review'];
-			}
-			if ( $c['translation'] ) {
-				++$out['translations'];
-			} elseif ( $c['language'] ) {
-				++$out['originals'];
-			} else {
-				++$out['not_in_wpml'];
-			}
-			if ( 'identical' === $c['kind'] && ! $c['needs_review'] ) {
-				++$out['auto_cleanable'];
+		$seen_posts = array();
+		foreach ( Database::KEYS as $key ) {
+			$ids = Scanner::affected_post_ids( $key );
+			$out['by_key'][ $key ] = count( $ids );
+			foreach ( $ids as $id ) {
+				$c = self::classify( $id, $key, $keep_mode );
+				if ( 'identical' === $c['kind'] ) {
+					++$out['identical'];
+				} elseif ( 'divergent' === $c['kind'] ) {
+					++$out['divergent'];
+				}
+				if ( $c['needs_review'] ) {
+					++$out['needs_review'];
+				}
+				if ( 'identical' === $c['kind'] && ! $c['needs_review'] ) {
+					++$out['auto_cleanable'];
+				}
+				if ( isset( $seen_posts[ $id ] ) ) {
+					continue;
+				}
+				$seen_posts[ $id ] = true;
+				if ( $c['translation'] ) {
+					++$out['translations'];
+				} elseif ( $c['language'] ) {
+					++$out['originals'];
+				} else {
+					++$out['not_in_wpml'];
+				}
 			}
 		}
-		$out['affected_posts'] = count( $ids );
+		$out['affected_posts'] = count( $seen_posts );
 		return $out;
 	}
 }

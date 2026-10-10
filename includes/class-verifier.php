@@ -30,14 +30,12 @@ final class Verifier {
 		wp_cache_delete( 'emdd', 'options' );
 
 		$keys = Database::keys_in();
+		// residual_rows = excess copies only (c-1 per duplicated post+key), matching Scanner.
 		$row  = $wpdb->get_row(
-			"SELECT COUNT(*) AS residual_rows, COUNT(DISTINCT post_id) AS residual_posts FROM (
-			   SELECT pm.meta_id, pm.post_id
-			   FROM {$wpdb->postmeta} pm
-			   JOIN (SELECT post_id, meta_key, COUNT(*) c FROM {$wpdb->postmeta}
-			         WHERE meta_key IN ({$keys}) GROUP BY post_id, meta_key HAVING c>1) d
-			     ON pm.post_id=d.post_id AND pm.meta_key=d.meta_key
-			 ) x",
+			"SELECT COALESCE(SUM(c-1),0) AS residual_rows, COUNT(DISTINCT post_id) AS residual_posts FROM (
+			   SELECT post_id, meta_key, COUNT(*) c FROM {$wpdb->postmeta}
+			   WHERE meta_key IN ({$keys}) GROUP BY post_id, meta_key HAVING c>1
+			 ) d",
 			ARRAY_A
 		);
 

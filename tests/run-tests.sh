@@ -70,6 +70,12 @@ restore_fixture
 RC4=$?
 
 echo
-TOTAL=$(( RC + RC2 + RC3 + RC4 ))
-if [ $TOTAL -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "TEST FAILURES (tests=$RC rollback=$RC2 chunked=$RC3 revisions=$RC4)"; fi
+echo "### All-keys planning regression test (restores fixture) ###"
+restore_fixture
+"$PHP" "$HARNESS_DIR/test-allkeys.php"
+RC5=$?
+
+echo
+TOTAL=$(( RC + RC2 + RC3 + RC4 + RC5 ))
+if [ $TOTAL -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "TEST FAILURES (tests=$RC rollback=$RC2 chunked=$RC3 revisions=$RC4 allkeys=$RC5)"; fi
 exit $TOTAL

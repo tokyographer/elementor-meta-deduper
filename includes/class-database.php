@@ -29,6 +29,9 @@ final class Database {
 		'_elementor_version',
 	);
 
+	/** Keys whose value must be valid JSON for the kept row to be trusted. */
+	public const JSON_KEYS = array( '_elementor_data' );
+
 	/**
 	 * Run a statement, or throw. Returns affected/selected row count.
 	 *

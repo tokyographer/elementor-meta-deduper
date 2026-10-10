@@ -40,7 +40,7 @@ See [`docs/`](docs/) for the full diagnosis, database analysis, and architecture
 - **Clean** in batches, each batch its own transaction, with a fail-loud DB layer so a failed statement
   **rolls back** instead of silently committing a partial result. Resumable, idempotent, with a
   `--max-delete` cap and a run-lock.
-- **Clean revisions** (separate, explicit action) — Elementor stores a full layout copy per
+- **Clean revisions** (separate, explicit action; autosaves are left alone) — Elementor stores a full layout copy per
   post revision, so revision buildup is a major postmeta bloat source independent of the
   duplication bug. Batched, transactional, backup-gated; never runs from cron.
 - **Verify** afterward (re-scan for residue + invalidate post caches).
